@@ -1,0 +1,17 @@
+.wp-block-jankx-carousel-inner-blocks-overlay {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 10;
+  outline: 1px dashed rgba(0,0,0,0.3);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  * {
+    pointer-events: auto;
+    // Disable transitions in editor for smoother editing
+    transition: none !important;
+    animation: none !important;
+  }
+}

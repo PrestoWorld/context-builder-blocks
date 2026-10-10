@@ -1,0 +1,73 @@
+// Block-level layout for the social sharing wrapper.
+//
+// The visual styles are WordPress *style variations* (`is-style-*` applied by
+// `useBlockProps` from the `styles` array in block.json) and each one lives in
+// its own partial under ./styles.
+@use "styles/filled";
+@use "styles/icon-only";
+@use "styles/none";
+@use "styles/outlined";
+@use "styles/rounded";
+@use "styles/square";
+
+.wp-block-jankx-social-sharing {
+    margin: 2rem 0;
+
+    .sharing-title {
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        color: #333;
+    }
+
+    .sharing-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    // Alignment
+    &.alignment-left .sharing-buttons {
+        justify-content: flex-start;
+    }
+
+    &.alignment-center .sharing-buttons {
+        justify-content: center;
+    }
+
+    &.alignment-right .sharing-buttons {
+        justify-content: flex-end;
+    }
+
+    // Style variations. The anchor itself is styled by the child block's
+    // stylesheet; these rules only describe how the variation applies to it.
+    &.is-style-none .sharing-icon-button {
+        @include none.social-sharing-style-none;
+    }
+
+    &.is-style-outlined .sharing-icon-button {
+        @include outlined.social-sharing-style-outlined;
+    }
+
+    &.is-style-filled .sharing-icon-button {
+        @include filled.social-sharing-style-filled;
+    }
+
+    &.is-style-rounded .sharing-icon-button {
+        @include rounded.social-sharing-style-rounded;
+    }
+
+    &.is-style-square .sharing-icon-button {
+        @include square.social-sharing-style-square;
+    }
+
+    .no-networks {
+        color: #999;
+        font-style: italic;
+        padding: 1rem;
+        text-align: center;
+        border: 2px dashed #ddd;
+        border-radius: 8px;
+    }
+}

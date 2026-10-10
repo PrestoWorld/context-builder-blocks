@@ -1,0 +1,149 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "jankx/star-rating",
+  "version": "1.0.0",
+  "title": "Star Rating",
+  "category": "jankx",
+  "icon": "star-filled",
+  "description": "Display star rating from various sources (WooCommerce, Meta, Crawler, Manual).",
+  "keywords": [
+    "rating",
+    "star",
+    "review",
+    "score"
+  ],
+  "textdomain": "jankx",
+  "attributes": {
+    "displayStyle": {
+      "type": "string",
+      "default": "stars",
+      "enum": [
+        "stars",
+        "summary"
+      ]
+    },
+    "ratingSource": {
+      "type": "string",
+      "default": "auto",
+      "enum": [
+        "auto",
+        "manual",
+        "woocommerce",
+        "meta",
+        "crawler"
+      ]
+    },
+    "manualRating": {
+      "type": "number",
+      "default": 5
+    },
+    "metaKey": {
+      "type": "string",
+      "default": "jankx_rating_average"
+    },
+    "crawlerTable": {
+      "type": "string",
+      "default": ""
+    },
+    "starSize": {
+      "type": "number",
+      "default": 16
+    },
+    "starColor": {
+      "type": "string",
+      "default": "#f1c40f"
+    },
+    "starEmptyColor": {
+      "type": "string",
+      "default": "#dddddd"
+    },
+    "iconType": {
+      "type": "string",
+      "default": "text",
+      "enum": [
+        "text",
+        "svg"
+      ]
+    },
+    "svgFull": {
+      "type": "string",
+      "default": ""
+    },
+    "svgHalf": {
+      "type": "string",
+      "default": ""
+    },
+    "svgEmpty": {
+      "type": "string",
+      "default": ""
+    },
+    "showCount": {
+      "type": "boolean",
+      "default": false
+    },
+    "countMetaKey": {
+      "type": "string",
+      "default": "jankx_rating_count"
+    },
+    "align": {
+      "type": "string",
+      "default": "left"
+    },
+    "position": {
+      "type": "string",
+      "default": ""
+    },
+    "top": {
+      "type": "string",
+      "default": ""
+    },
+    "right": {
+      "type": "string",
+      "default": ""
+    },
+    "bottom": {
+      "type": "string",
+      "default": ""
+    },
+    "left": {
+      "type": "string",
+      "default": ""
+    },
+    "zIndex": {
+      "type": "number"
+    }
+  },
+  "supports": {
+    "html": false,
+    "align": [
+      "left",
+      "center",
+      "right"
+    ],
+    "spacing": {
+      "margin": true,
+      "padding": true
+    },
+    "color": {
+      "text": true,
+      "background": true,
+      "enableBackground": true
+    },
+    "typography": {
+      "fontSize": true,
+      "lineHeight": true,
+      "__experimentalFontFamily": true,
+      "__experimentalFontWeight": true,
+      "__experimentalFontStyle": true,
+      "__experimentalTextTransform": true,
+      "__experimentalTextDecoration": true,
+      "__experimentalLetterSpacing": true,
+      "__experimentalDefaultControls": {
+        "fontSize": true
+      }
+    }
+  },
+  "editorScript": "file:../../dist/blocks/star-rating/index.js",
+  "style": "file:../../dist/blocks/star-rating/style.css"
+}

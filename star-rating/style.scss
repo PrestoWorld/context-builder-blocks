@@ -1,0 +1,117 @@
+.wp-block-jankx-star-rating {
+    margin-block-start: 0;
+    .jankx-star-rating {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .jankx-stars {
+        display: inline-flex;
+        line-height: 1;
+        font-size: var(--star-size, 16px);
+    }
+
+    .jankx-star {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--star-color, #f1c40f);
+        
+        &.empty {
+            color: var(--star-empty-color, #ddd);
+        }
+
+        &.is-svg {
+            width: var(--star-size, 16px);
+            height: var(--star-size, 16px);
+            
+            svg {
+                width: 100%;
+                height: 100%;
+                fill: currentColor;
+            }
+        }
+    }
+
+    .jankx-rating-count {
+        font-size: 0.8em;
+        color: #666;
+    }
+    .jankx-rating-text {
+        font-size: 0.9em;
+        color: #444;
+    }
+
+    .jankx-rating-summary {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: var(--star-size, 16px);
+        line-height: 1;
+
+        &__icon {
+            color: var(--star-color, #f1c40f);
+        }
+
+        &__score {
+            font-weight: 600;
+        }
+
+        &__count {
+            color: #666;
+            font-size: 0.85em;
+        }
+    }
+}
+
+/**
+ * Google Summary variation
+ * Mimics the Google Maps / Play Store rating chip:
+ *   ★  4.6  (39,092)
+ */
+.wp-block-jankx-star-rating.is-style-google-summary {
+    .jankx-rating-summary {
+        align-items: center;
+        gap: 6px;
+        font-size: var(--star-size, 20px);
+
+        &__icon {
+            color: var(--star-color, #5b8e29);
+            font-size: 1.1em;
+            line-height: 1;
+        }
+
+        &__score {
+            font-weight: 700;
+            color: #1a1a1a;
+            font-size: 1em;
+            letter-spacing: -0.01em;
+        }
+
+        &__count {
+            color: #9e9e9e;
+            font-weight: 400;
+            font-size: 0.85em;
+        }
+    }
+}
+
+/**
+ * Compact Stars variation
+ * Small inline stars, no count — ideal for cards / list items
+ */
+.wp-block-jankx-star-rating.is-style-compact-stars {
+    .jankx-star-rating {
+        gap: 2px;
+    }
+
+    .jankx-stars {
+        font-size: var(--star-size, 12px);
+        gap: 1px;
+    }
+
+    .jankx-star {
+        line-height: 1;
+    }
+}

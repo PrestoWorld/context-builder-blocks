@@ -1,0 +1,1276 @@
+/**
+ * Advanced Filters Block - Frontend JavaScript
+ *
+ * Handles filter interactions and AJAX updates
+ */
+
+interface FilterConfig {
+    filterId: string;
+    targetBlockIds: string[];
+    ajaxEnabled: boolean;
+    updateUrl: boolean;
+    scrollToResults: boolean;
+    taxonomyFilters: any[];
+    metaFilters: any[];
+    priceFilters: any[];
+    dateFilters: any[];
+    authorFilters: any[];
+    keywordFilter: any;
+}
+
+export class AdvancedFilters {
+    private config: FilterConfig | null = null;
+    private container: HTMLElement | null = null;
+    private currentFilters: Record<string, any> = {};
+    // blockId → data-rule JSON of the option picked in that block's sorter
+    // dropdown. Kept in JS because every AJAX update rebuilds the <select> and
+    // would otherwise snap back to the first option.
+    private selectedSortRules: Record<string, string> = {};
+
+    constructor(container: HTMLElement) {
+        this.container = container;
+        // Expose instance for external triggers (e.g., smart-tab)
+        (this.container as any).advancedFiltersInstance = this;
+        // Move padding from wrapper to inner container (so it's inside border)
+        this.movePaddingToContainer();
+        this.init();
+    }
+    
+    /**
+     * Move padding from wrapper to inner container
+     * This ensures padding is inside the border, not outside
+     */
+    private movePaddingToContainer(): void {
+        if (!this.container) return;
+        
+        const container = this.container.querySelector('.advanced-filters-container') as HTMLElement;
+        if (!container) return;
+        
+        // Get computed styles from wrapper
+        const wrapperStyles = window.getComputedStyle(this.container);
+        const paddingTop = wrapperStyles.paddingTop;
+        const paddingRight = wrapperStyles.paddingRight;
+        const paddingBottom = wrapperStyles.paddingBottom;
+        const paddingLeft = wrapperStyles.paddingLeft;
+        
+        // Only move padding if it's not zero
+        if (paddingTop !== '0px' || paddingRight !== '0px' || paddingBottom !== '0px' || paddingLeft !== '0px') {
+            // Apply padding to inner container
+            container.style.paddingTop = paddingTop;
+            container.style.paddingRight = paddingRight;
+            container.style.paddingBottom = paddingBottom;
+            container.style.paddingLeft = paddingLeft;
+            
+            // Remove padding from wrapper
+            this.container.style.padding = '0';
+            
+            // Also adjust reset button margins if it exists
+            const resetButton = this.container.querySelector('.filter-reset-button') as HTMLElement;
+            if (resetButton) {
+                resetButton.style.marginLeft = paddingLeft;
+                resetButton.style.marginRight = paddingRight;
+                resetButton.style.marginBottom = paddingBottom;
+            }
+        }
+    }
+
+    private init(): void {
+        if (!this.container) return;
+
+        const configElement = this.container.querySelector('.advanced-filters-config');
+        if (!configElement) return;
+
+        try {
+            const configData = configElement.getAttribute('data-config');
+            if (configData) {
+                this.config = JSON.parse(configData);
+                // Get nonce and AJAX URL from data attributes (fallback to localized script)
+                const nonce = configElement.getAttribute('data-nonce') || (window as any).jankxAdvancedFilters?.nonce || '';
+                const ajaxUrl = configElement.getAttribute('data-ajax-url') || (window as any).jankxAdvancedFilters?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                
+                // Store nonce and AJAX URL in config for later use
+                (this.config as any).nonce = nonce;
+                (this.config as any).ajaxUrl = ajaxUrl;
+                
+                // Load filter values from URL on page load
+                this.loadFiltersFromUrl();
+
+                this.setupEventListeners();
+
+                // dynamic-data-sort-rules announces value changes through a
+                // CustomEvent so BOTH directions stay in sync: a sort change
+                // reloads the target (with the current filter values) and every
+                // filter change keeps reloading it with the selected sort rule.
+                document.addEventListener('jankx:sort-rule-change', this.onSortRuleChange);
+            }
+        } catch (error) {
+            console.error('Error parsing filter config:', error);
+        }
+    }
+
+    private setupEventListeners(): void {
+        if (!this.container || !this.config) return;
+
+        // Taxonomy filters (buttons, checkboxes)
+        this.container.querySelectorAll('.filter-taxonomy input, .filter-taxonomy .filter-option').forEach((element) => {
+            if (element instanceof HTMLInputElement || element instanceof HTMLElement) {
+                // Skip tabs - they have their own handler
+                if (element.classList.contains('filter-tab')) return;
+
+                element.addEventListener('change', () => this.handleFilterChange());
+                if (element instanceof HTMLElement && element.classList.contains('filter-option')) {
+                    element.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        
+                        // Find the checkbox/radio input inside the filter-option (label)
+                        const input = element.querySelector('input[type="checkbox"], input[type="radio"]') as HTMLInputElement;
+                        
+                        // Find the parent filter group to check multiple selection setting
+                        const filterGroup = element.closest('[data-taxonomy]');
+                        const multipleSelection = filterGroup?.getAttribute('data-multiple-selection') === 'true';
+                        
+                        if (input) {
+                            if (multipleSelection) {
+                                // Toggle: allow multiple selections
+                                input.checked = !input.checked;
+                                element.classList.toggle('active', input.checked);
+                            } else {
+                                // Single selection: uncheck all siblings, then check this one
+                                const siblings = filterGroup?.querySelectorAll('input[type="checkbox"], input[type="radio"]');
+                                siblings?.forEach((sibling: HTMLInputElement) => {
+                                    sibling.checked = false;
+                                    const siblingOption = sibling.closest('.filter-option');
+                                    if (siblingOption) {
+                                        siblingOption.classList.remove('active');
+                                    }
+                                });
+                                input.checked = true;
+                                element.classList.add('active');
+                            }
+                            
+                            // Trigger change event on input to ensure other listeners are notified
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                        } else {
+                            // Fallback: if no input found, just toggle active class (for button-style options)
+                            if (multipleSelection) {
+                                // Toggle: allow multiple selections
+                                element.classList.toggle('active');
+                            } else {
+                                // Single selection: deactivate siblings, then toggle this one
+                                const siblings = filterGroup?.querySelectorAll('.filter-option');
+                                siblings?.forEach(sibling => sibling.classList.remove('active'));
+                                element.classList.toggle('active');
+                            }
+                        }
+                        
+                        this.handleFilterChange();
+                    });
+                }
+            }
+        });
+
+        // Post types filter (single-select: radios / buttons / tabs / dropdown)
+        this.container.querySelectorAll('.filter-post_types input, .filter-post_types .filter-option').forEach((element) => {
+            if (element instanceof HTMLInputElement) {
+                element.addEventListener('change', () => this.handleFilterChange());
+                return;
+            }
+            if (!(element instanceof HTMLElement)) return;
+            // Tabs have their own handler below
+            if (element.classList.contains('filter-tab')) return;
+
+            element.addEventListener('click', (e) => {
+                e.preventDefault();
+                const input = element.querySelector('input[type="radio"]') as HTMLInputElement | null;
+                const group = element.closest('.filter-post_types');
+
+                if (input) {
+                    // Single-select: uncheck sibling radios, then check this one
+                    group?.querySelectorAll('input[type="radio"]').forEach((sibling) => {
+                        if (sibling instanceof HTMLInputElement) {
+                            sibling.checked = false;
+                            sibling.closest('.filter-option')?.classList.remove('active');
+                        }
+                    });
+                    input.checked = true;
+                    element.classList.add('active');
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                } else {
+                    // Button-style option (no input): deactivate siblings, toggle this one
+                    group?.querySelectorAll('.filter-option').forEach((sibling) => sibling.classList.remove('active'));
+                    element.classList.add('active');
+                }
+
+                this.handleFilterChange();
+            });
+        });
+
+        // Smooth dropdown display style: toggle open/close with animation
+        this.container.querySelectorAll<HTMLElement>('.filter-dropdown').forEach((dropdown) => {
+            const toggle = dropdown.querySelector<HTMLElement>('.filter-dropdown__toggle');
+            if (toggle) {
+                toggle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const willOpen = !dropdown.classList.contains('is-open');
+                    this.closeAllDropdowns(dropdown);
+                    dropdown.classList.toggle('is-open', willOpen);
+                    dropdown.setAttribute('data-state', willOpen ? 'open' : 'closed');
+                    toggle.setAttribute('aria-expanded', String(willOpen));
+                });
+            }
+        });
+
+        // Close dropdowns on outside click (delegated at document level)
+        document.addEventListener('click', (e) => {
+            this.container?.querySelectorAll('.filter-dropdown.is-open').forEach((dropdown) => {
+                if (dropdown instanceof HTMLElement && !dropdown.contains(e.target as Node)) {
+                    this.closeDropdown(dropdown);
+                }
+            });
+        });
+
+        // Tabs display style: click on tab activates it, single selection only
+        this.container.querySelectorAll('.display-tabs .filter-tab').forEach((tab) => {
+            tab.addEventListener('click', (e) => {
+                e.preventDefault();
+                const tabsContainer = tab.closest('.display-tabs');
+                if (!tabsContainer) return;
+
+                // Remove active from all tabs in this group
+                tabsContainer.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+                // Add active to clicked tab
+                tab.classList.add('active');
+
+                this.handleFilterChange();
+            });
+        });
+
+        // Meta filters
+        this.container.querySelectorAll('.filter-meta input, .filter-meta select').forEach((element) => {
+            element.addEventListener('change', () => this.handleFilterChange());
+            element.addEventListener('input', () => {
+                if (this.config?.ajaxEnabled) {
+                    this.debounce(() => this.handleFilterChange(), 500)();
+                }
+            });
+        });
+
+        // Price filters
+        this.container.querySelectorAll('.filter-price input').forEach((element) => {
+            element.addEventListener('input', () => {
+                if (this.config?.ajaxEnabled) {
+                    this.debounce(() => this.handleFilterChange(), 500)();
+                }
+            });
+        });
+
+        // Date filters
+        this.container.querySelectorAll('.filter-date input').forEach((element) => {
+            element.addEventListener('change', () => this.handleFilterChange());
+        });
+
+        // Keyword filter
+        const keywordInput = this.container.querySelector('.filter-keyword input.filter-input-keyword');
+        if (keywordInput) {
+            const keywordGroup = keywordInput.closest('.filter-group[data-filter-type="keyword"]') as HTMLElement | null;
+            const keywordAction = keywordGroup?.getAttribute('data-keyword-action') || 'typing';
+            const searchButton = this.container.querySelector('.filter-keyword .filter-search-button') as HTMLElement | null;
+
+            if (keywordAction === 'button' && searchButton) {
+                // Only trigger when clicking search button or pressing Enter
+                searchButton.addEventListener('click', () => this.handleFilterChange());
+                keywordInput.addEventListener('keydown', (e: KeyboardEvent) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        this.handleFilterChange();
+                    }
+                });
+            } else {
+                // Default: filter while typing (debounced)
+                keywordInput.addEventListener('input', () => {
+                    if (this.config?.ajaxEnabled) {
+                        this.debounce(() => this.handleFilterChange(), 500)();
+                    }
+                });
+            }
+        }
+
+        // Post type radio (inside keyword filter)
+        this.container.querySelectorAll('.filter-keyword .post-type-radios input[type="radio"]').forEach((element) => {
+            element.addEventListener('change', () => this.handleFilterChange());
+        });
+
+        // Reset button
+        const resetButton = this.container.querySelector('.filter-reset-button');
+        if (resetButton) {
+            resetButton.addEventListener('click', () => this.handleReset());
+        }
+
+        // WooCommerce ordering form
+        this.setupWooCommerceOrderingListener();
+    }
+
+    /**
+     * Setup event listener for WooCommerce ordering form
+     * 
+     * @return void
+     */
+    private setupWooCommerceOrderingListener(): void {
+        // Try to find WooCommerce ordering form
+        let woocommerceOrdering = document.querySelector('.woocommerce-ordering .orderby') as HTMLSelectElement;
+        
+        if (!woocommerceOrdering) {
+            // Form not found, might not be loaded yet, try again after DOM is ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => {
+                    this.setupWooCommerceOrderingListener();
+                });
+            } else {
+                // If DOM is ready but form not found, try again after a short delay
+                // This handles cases where form is rendered dynamically
+                setTimeout(() => {
+                    this.setupWooCommerceOrderingListener();
+                }, 500);
+            }
+            return;
+        }
+
+        // Check if listener already attached to avoid duplicate listeners
+        if ((woocommerceOrdering as any).__jankxAdvancedFiltersListenerAttached) {
+            return;
+        }
+
+        // Mark as attached
+        (woocommerceOrdering as any).__jankxAdvancedFiltersListenerAttached = true;
+
+        // Prevent default form submission behavior
+        const orderingForm = woocommerceOrdering.closest('form.woocommerce-ordering') as HTMLFormElement;
+        if (orderingForm && !(orderingForm as any).__jankxAdvancedFiltersPreventDefaultAttached) {
+            (orderingForm as any).__jankxAdvancedFiltersPreventDefaultAttached = true;
+            orderingForm.addEventListener('submit', (e) => {
+                // Only prevent default if AJAX is enabled
+                if (this.config && this.config.ajaxEnabled) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                // If AJAX is not enabled, allow normal form submission
+            });
+        }
+
+        // Listen for change event on orderby select
+        woocommerceOrdering.addEventListener('change', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Trigger filter update when orderby changes
+            if (this.config && this.config.ajaxEnabled) {
+                // Small delay to ensure form doesn't submit
+                setTimeout(() => {
+                    this.handleFilterChange();
+                }, 50);
+            } else {
+                // If AJAX is not enabled, submit the form normally
+                if (orderingForm) {
+                    orderingForm.submit();
+                }
+            }
+        });
+
+        // Also listen for dynamically added forms
+        // Use MutationObserver to handle cases where form is added after page load
+        if (!(document as any).__jankxAdvancedFiltersOrderingObserver) {
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            const element = node as HTMLElement;
+                            // Check if the added node or its children contain the ordering form
+                            const newOrdering = element.querySelector?.('.woocommerce-ordering .orderby') || 
+                                              (element.classList?.contains('woocommerce-ordering') ? 
+                                               element.querySelector('.orderby') : null) as HTMLSelectElement;
+                            
+                            if (newOrdering && !(newOrdering as any).__jankxAdvancedFiltersListenerAttached) {
+                                // New form found, setup listener
+                                this.setupWooCommerceOrderingListener();
+                            }
+                        }
+                    });
+                });
+            });
+
+            // Observe the document body for new elements
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+            });
+
+            (document as any).__jankxAdvancedFiltersOrderingObserver = observer;
+        }
+    }
+
+    private closeDropdown(dropdown: HTMLElement): void {
+        dropdown.classList.remove('is-open');
+        dropdown.setAttribute('data-state', 'closed');
+        dropdown.querySelector('.filter-dropdown__toggle')?.setAttribute('aria-expanded', 'false');
+    }
+
+    private closeAllDropdowns(except?: HTMLElement): void {
+        this.container?.querySelectorAll('.filter-dropdown.is-open').forEach((dropdown) => {
+            if (dropdown instanceof HTMLElement && dropdown !== except) {
+                this.closeDropdown(dropdown);
+            }
+        });
+    }
+
+    private syncDropdownLabels(): void {
+        this.container?.querySelectorAll('.filter-dropdown').forEach((dropdown) => {
+            if (!(dropdown instanceof HTMLElement)) return;
+            const valueEl = dropdown.querySelector('.filter-dropdown__value');
+            if (!valueEl) return;
+
+            const defaultLabel = dropdown.getAttribute('data-default-label') || 'All';
+            let text = '';
+
+            const group = dropdown.closest('.filter-post_types, .filter-taxonomy');
+            if (group) {
+                const checked = group.querySelector('input:checked') as HTMLInputElement | null;
+                if (checked && checked.value !== '') {
+                    const label = checked.closest('label');
+                    text = (label?.querySelector('span')?.textContent || label?.textContent || checked.value).trim();
+                } else if (!checked) {
+                    // Button/tab style options carry their value in data-value
+                    const active = group.querySelector('.filter-tab.active, .filter-option.active') as HTMLElement | null;
+                    const activeValue = active?.getAttribute('data-value') ?? '';
+                    if (active && activeValue) {
+                        text = (active.textContent || activeValue).trim();
+                    }
+                }
+            }
+
+            valueEl.textContent = text || defaultLabel;
+        });
+    }
+
+    /**
+     * Detach listeners that live outside the container so a destroyed instance
+     * stops reacting to sort changes.
+     */
+    destroy(): void {
+        document.removeEventListener('jankx:sort-rule-change', this.onSortRuleChange);
+    }
+
+    /**
+     * A value changed in a dynamic-data-sort-rules dropdown targeting one of
+     * our blocks: remember the rule and reload the data (filter values are
+     * collected from the DOM, so they stay applied).
+     */
+    private onSortRuleChange = (event: Event): void => {
+        const detail = (event as CustomEvent<{ blockId?: string; rule?: string; handled?: boolean }>).
+            detail || {};
+        const blockId = detail.blockId || '';
+
+        if (!this.config || !blockId) return;
+        if (this.config.targetBlockIds.indexOf(blockId) === -1) return;
+        // Another instance already owns this reload.
+        if (detail.handled) return;
+        // A non-AJAX filter block cannot carry the sort rule through its form
+        // submit — leave the event unhandled so the sort-rules fallback
+        // performs the reload instead.
+        if (!this.config.ajaxEnabled) return;
+
+        detail.handled = true;
+        this.selectedSortRules[blockId] = detail.rule || '';
+        this.handleFilterChange();
+    };
+
+    /**
+     * Re-apply the stored sort selection to a rebuilt sorter dropdown.
+     * Called after every AJAX update replaces the target's inner HTML.
+     */
+    private restoreSortSelection(target: HTMLElement, blockId: string): void {
+        const rule = this.selectedSortRules[blockId];
+        if (!rule) return;
+
+        const select = target.querySelector('.jankx-data-sorter') as HTMLSelectElement | null;
+        if (!select) return;
+
+        const match = Array.from(select.options).find(
+            (option) => option.getAttribute('data-rule') === rule
+        );
+        if (match) {
+            select.value = match.value;
+        }
+    }
+
+    private handleFilterChange(): void {
+        if (!this.config) return;
+
+        // Close open dropdowns and refresh their toggle labels after a selection
+        this.closeAllDropdowns();
+        this.syncDropdownLabels();
+
+        this.collectFilters();
+
+        if (this.config.ajaxEnabled) {
+            this.updateViaAjax();
+        } else {
+            this.updateViaForm();
+        }
+    }
+
+    private collectFilters(): void {
+        if (!this.container) return;
+
+        const filters: Record<string, any> = {};
+
+        // Collect taxonomy filters
+        this.container.querySelectorAll('.filter-taxonomy').forEach((group) => {
+            const taxonomy = group.getAttribute('data-taxonomy');
+            if (!taxonomy) return;
+
+            const selected: any[] = [];
+            group.querySelectorAll('input:checked, .filter-option.active').forEach((element) => {
+                if (element instanceof HTMLInputElement) {
+                    selected.push(element.value);
+                } else if (element instanceof HTMLElement) {
+                    const value = element.getAttribute('data-value');
+                    if (value) selected.push(value);
+                }
+            });
+
+            if (selected.length > 0) {
+                filters[taxonomy] = selected;
+            }
+        });
+
+        // Collect meta filters
+        this.container.querySelectorAll('.filter-meta').forEach((group) => {
+            const metaKey = group.getAttribute('data-meta-key');
+            if (!metaKey) return;
+
+            const input = group.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
+            if (input && input.value) {
+                filters[`meta_${metaKey}`] = input.value;
+            }
+        });
+
+        // Collect price filters
+        const priceGroup = this.container.querySelector('.filter-price');
+        if (priceGroup) {
+            const minInput = priceGroup.querySelector('[data-price="min"]') as HTMLInputElement;
+            const maxInput = priceGroup.querySelector('[data-price="max"]') as HTMLInputElement;
+
+            if (minInput?.value || maxInput?.value) {
+                filters.price = {
+                    min: minInput?.value || '',
+                    max: maxInput?.value || '',
+                };
+            }
+        }
+
+        // Collect date filters
+        const dateGroup = this.container.querySelector('.filter-date');
+        if (dateGroup) {
+            const startInput = dateGroup.querySelector('[data-date="start"]') as HTMLInputElement;
+            const endInput = dateGroup.querySelector('[data-date="end"]') as HTMLInputElement;
+
+            if (startInput?.value || endInput?.value) {
+                filters.date = {
+                    start: startInput?.value || '',
+                    end: endInput?.value || '',
+                };
+            }
+        }
+
+        // Collect keyword filter
+        const keywordInput = this.container.querySelector('.filter-keyword input.filter-input-keyword') as HTMLInputElement;
+        if (keywordInput?.value) {
+            filters.keyword = keywordInput.value;
+        }
+
+        // Collect selected post type from the dedicated post_types filter group
+        const postTypesGroup = this.container.querySelector('.filter-post_types');
+        if (postTypesGroup) {
+            const checkedRadio = postTypesGroup.querySelector('input[type="radio"]:checked') as HTMLInputElement | null;
+            if (checkedRadio) {
+                // Radio mode (incl. "All" with value='') is the source of truth
+                filters.post_type = checkedRadio.value;
+            } else {
+                // Button / tab style options carry their value in data-value
+                const activeTab = postTypesGroup.querySelector('.filter-tab.active') as HTMLElement | null;
+                const activeOption = postTypesGroup.querySelector('.filter-option.active:not(.filter-tab)') as HTMLElement | null;
+                filters.post_type = activeTab?.getAttribute('data-value')
+                    || activeOption?.getAttribute('data-value')
+                    || '';
+            }
+        } else {
+            // Legacy: post type radios rendered inside the keyword filter
+            const selectedPostType = (this.container.querySelector('.filter-keyword .post-type-radios input[type="radio"]:checked') as HTMLInputElement | null)?.value || '';
+            if (selectedPostType) {
+                filters.post_type = selectedPostType;
+            }
+        }
+
+        // Collect WooCommerce ordering
+        const woocommerceOrdering = document.querySelector('.woocommerce-ordering .orderby') as HTMLSelectElement;
+        if (woocommerceOrdering?.value) {
+            filters.orderby = woocommerceOrdering.value;
+        }
+
+        this.currentFilters = filters;
+    }
+
+    private async updateViaAjax(): Promise<void> {
+        if (!this.config || this.config.targetBlockIds.length === 0) return;
+
+        this.showLoading();
+
+        try {
+            // Get nonce from config (set in init) or fallback to localized script
+            const nonce = (this.config as any)?.nonce || (window as any).jankxAdvancedFilters?.nonce || '';
+            let ajaxUrl = (this.config as any)?.ajaxUrl || (window as any).jankxAdvancedFilters?.ajaxUrl || '/wp-admin/admin-ajax.php';
+            
+            // Ensure AJAX URL is absolute
+            if (ajaxUrl.startsWith('/')) {
+                // Relative URL, make it absolute
+                ajaxUrl = window.location.origin + ajaxUrl;
+            } else if (!ajaxUrl.startsWith('http://') && !ajaxUrl.startsWith('https://')) {
+                // Relative URL without leading slash, add origin
+                ajaxUrl = window.location.origin + '/' + ajaxUrl.replace(/^\//, '');
+            }
+
+            if (!nonce) {
+                console.error('Nonce is missing! Cannot proceed with AJAX request.');
+                alert('Security error: Please refresh the page and try again.');
+                this.hideLoading();
+                return;
+            }
+
+            // Get current post ID if available - try multiple methods
+            let postId = 0;
+            
+            // Method 1: From WordPress editor (admin)
+            try {
+                postId = (window as any).wp?.data?.select('core/editor')?.getCurrentPostId?.() || 0;
+            } catch (e) {
+                // Not in editor
+            }
+            
+            // Method 2: From body data attribute
+            if (!postId) {
+                const bodyPostId = document.body.getAttribute('data-post-id');
+                if (bodyPostId) {
+                    postId = parseInt(bodyPostId) || 0;
+                }
+            }
+            
+            // Method 3: From URL query string
+            if (!postId) {
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlPostId = urlParams.get('p') || urlParams.get('post') || urlParams.get('post_id');
+                if (urlPostId) {
+                    postId = parseInt(urlPostId) || 0;
+                }
+            }
+            
+            // Method 4: From body classes (WordPress adds postid-{ID} class)
+            if (!postId) {
+                const bodyClasses = document.body.className;
+                const postIdMatch = bodyClasses.match(/postid-(\d+)/);
+                if (postIdMatch) {
+                    postId = parseInt(postIdMatch[1]) || 0;
+                }
+            }
+
+            // Use DynamicDataLayoutBlock's AJAX handler
+            // Process each target block individually
+            const updatePromises = this.config.targetBlockIds.map(async (blockId): Promise<{ blockId: string; html: string } | null> => {
+                // Get block attributes from DOM if available
+                const targetBlock = document.querySelector(`[data-query-id="${blockId}"], [data-block-id="${blockId}"]`) as HTMLElement;
+                let attributesJson = '';
+                
+                if (targetBlock) {
+                    // Try to get data-block-settings first (for PostTypeLayoutBlock)
+                    const blockSettings = targetBlock.getAttribute('data-block-settings');
+                    if (blockSettings) {
+                        attributesJson = blockSettings;
+                    } else {
+                        // For DynamicDataLayoutBlock, build attributes from data attributes
+                        const attributes: Record<string, unknown> = {
+                            queryId: blockId,
+                        };
+                        
+                        // Collect all data attributes
+                        const postType = targetBlock.getAttribute('data-post-type');
+                        if (postType) attributes.postType = postType;
+                        
+                        const layout = targetBlock.getAttribute('data-layout');
+                        if (layout) attributes.layout = layout;
+                        
+                        const postsPerPage = targetBlock.getAttribute('data-posts-per-page');
+                        if (postsPerPage) attributes.postsPerPage = parseInt(postsPerPage, 10);
+                        
+                        const columns = targetBlock.getAttribute('data-columns');
+                        if (columns) attributes.columns = parseInt(columns, 10);
+                        
+                        const columnsTablet = targetBlock.getAttribute('data-columns-tablet');
+                        if (columnsTablet) attributes.columnsTablet = parseInt(columnsTablet, 10);
+                        
+                        const columnsMobile = targetBlock.getAttribute('data-columns-mobile');
+                        if (columnsMobile) attributes.columnsMobile = parseInt(columnsMobile, 10);
+                        
+                        const orderBy = targetBlock.getAttribute('data-order-by');
+                        if (orderBy) attributes.orderBy = orderBy;
+                        
+                        const order = targetBlock.getAttribute('data-order');
+                        if (order) attributes.order = order;
+                        
+                        const queryPreset = targetBlock.getAttribute('data-query-preset');
+                        if (queryPreset) attributes.queryPreset = queryPreset;
+                        
+                        const imageRatio = targetBlock.getAttribute('data-image-ratio');
+                        if (imageRatio) attributes.imageRatio = imageRatio;
+                        
+                        const thumbnailPosition = targetBlock.getAttribute('data-thumbnail-position');
+                        if (thumbnailPosition) attributes.thumbnailPosition = thumbnailPosition;
+                        
+                        // Convert to JSON if we have any attributes
+                        if (Object.keys(attributes).length > 1) { // More than just queryId
+                            attributesJson = JSON.stringify(attributes);
+                        }
+                    }
+                }
+                
+                // If still no attributes, log warning but continue (server will try to find block)
+                if (!attributesJson) {
+                    console.warn(`AdvancedFilters: Could not find block attributes for block ${blockId}, server will try to detect from block_id`);
+                }
+
+                const params = new URLSearchParams({
+                    action: 'jankx_dynamic_data_layout_filter',
+                    nonce: nonce,
+                    block_id: blockId,
+                    attributes: attributesJson,
+                    filters: JSON.stringify(this.currentFilters),
+                });
+
+                // Keep the selected sort rule applied while filters change.
+                const sortRule = this.selectedSortRules[blockId];
+                if (sortRule) {
+                    params.set('sort_rule', sortRule);
+                }
+
+                // Always send post_id if we have it
+                if (postId > 0) {
+                    params.append('post_id', String(postId));
+                } else {
+                    console.warn('AdvancedFilters: Could not determine post_id, server will try to detect it');
+                }
+
+                let response: Response;
+                try {
+                    response = await fetch(ajaxUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: params,
+                        credentials: 'same-origin', // Include cookies for WordPress
+                    });
+                } catch (fetchError) {
+                    // Network error - could be CORS, connection issue, or page redirect
+                    console.error(`Network error when fetching filter update for block ${blockId}:`, fetchError);
+                    
+                    // If it's a NetworkError, the page might be redirecting
+                    if (fetchError instanceof TypeError && fetchError.message.includes('fetch')) {
+                        console.warn('Possible page redirect detected, falling back to form submission');
+                        // Don't throw error, just return null to skip this block update
+                        return null;
+                    }
+                    
+                    throw fetchError;
+                }
+
+                if (!response.ok) {
+                    let errorText = '';
+                    try {
+                        errorText = await response.text();
+                    } catch (e) {
+                        errorText = `HTTP ${response.status} ${response.statusText}`;
+                    }
+                    console.error(`Filter update failed for block ${blockId}:`, response.status, errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                let data: any;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    console.error(`Failed to parse JSON response for block ${blockId}:`, jsonError);
+                    throw new Error('Invalid JSON response from server');
+                }
+
+                if (data.success && data.data) {
+                    return {
+                        blockId: blockId,
+                        html: data.data.html,
+                    };
+                } else {
+                    const errorMessage = data?.data?.message || data?.data || 'Unknown error';
+                    console.error(`Filter update failed for block ${blockId}:`, errorMessage);
+                    throw new Error(errorMessage);
+                }
+            });
+
+            // Wait for all blocks to update (filter out null results)
+            const results = await Promise.all(updatePromises);
+            const validResults = results.filter((result): result is { blockId: string; html: string } => result !== null);
+
+            if (validResults.length === 0) {
+                console.warn('No valid results from filter update');
+                this.hideLoading();
+                return;
+            }
+
+            // Update target blocks
+            const resultsMap: Record<string, string> = {};
+            validResults.forEach((result) => {
+                resultsMap[result.blockId] = result.html;
+            });
+
+            this.updateTargetBlocks(resultsMap);
+            if (this.config.updateUrl) {
+                this.updateUrl();
+            }
+            if (this.config.scrollToResults) {
+                this.scrollToResults();
+            }
+        } catch (error) {
+            console.error('Error updating filters:', error);
+            alert(`Error updating filters: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    private updateViaForm(): void {
+        if (!this.container) return;
+
+        const form = this.container.closest('form');
+        if (form) {
+            form.submit();
+        }
+    }
+
+    private updateTargetBlocks(data: Record<string, string>): void {
+        Object.entries(data).forEach(([blockId, html]) => {
+            // Try multiple selectors to find the target block
+            let targetElement = document.querySelector(`[data-block-id="${blockId}"]`);
+            
+            if (!targetElement) {
+                // Try by queryId attribute if present in the rendered HTML
+                targetElement = document.querySelector(`[data-query-id="${blockId}"]`);
+            }
+            
+            if (!targetElement) {
+                // Try by ID
+                targetElement = document.getElementById(`block-${blockId}`);
+            }
+            
+            if (!targetElement) {
+                // Try finding by class and queryId data attribute
+                const blocks = document.querySelectorAll('.wp-block-jankx-dynamic-data-layout');
+                blocks.forEach((block) => {
+                    const queryId = (block as HTMLElement).getAttribute('data-query-id');
+                    if (queryId === blockId) {
+                        targetElement = block as HTMLElement;
+                    }
+                });
+            }
+            
+            if (targetElement) {
+                // Remove loading spinner before updating content
+                const existingLoading = targetElement.querySelector('.dynamic-data-layout-loading');
+                if (existingLoading) {
+                    existingLoading.remove();
+                }
+                
+                // Parse the returned HTML and update the existing node without replacing it
+                // to preserve references and avoid losing the target block identity
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html.trim();
+                const newContent = tempDiv.firstElementChild;
+                
+                if (newContent) {
+                    const target = targetElement as HTMLElement;
+                    const source = newContent as HTMLElement;
+
+                    // Sync classes
+                    target.className = source.className;
+
+                    // Sync common data attributes present in source
+                    Array.from(source.attributes).forEach((attr) => {
+                        const name = attr.name;
+                        const value = attr.value;
+                        if (name === 'id') return; // keep existing id
+                        target.setAttribute(name, value);
+                    });
+
+                    // Update inner HTML only
+                    target.innerHTML = source.innerHTML;
+
+                    // The sorter dropdown was rebuilt from scratch — put the
+                    // visitor's selection back on it.
+                    this.restoreSortSelection(target, blockId);
+
+                    // Re-initialize any scripts that might be needed (e.g., carousel, load-more)
+                    this.reinitializeBlockScripts(target);
+                } else {
+                    // Fallback: just replace innerHTML
+                    (targetElement as HTMLElement).innerHTML = html;
+                    this.restoreSortSelection(targetElement as HTMLElement, blockId);
+                }
+            } else {
+                console.warn(`AdvancedFiltersBlock: Target block with ID "${blockId}" not found in DOM`);
+            }
+        });
+    }
+
+    private reinitializeBlockScripts(element: HTMLElement): void {
+        // Re-initialize carousel if present
+        if (element.querySelector('.dynamic-data-layout-carousel')) {
+            // Trigger any carousel initialization scripts
+            const event = new CustomEvent('jankx:reinitialize-carousel', {
+                detail: { element },
+            });
+            document.dispatchEvent(event);
+        }
+
+        // Re-initialize load-more buttons if present
+        if (element.querySelector('.jankx-load-more-button')) {
+            // Trigger load-more initialization
+            const event = new CustomEvent('jankx:reinitialize-load-more', {
+                detail: { element },
+            });
+            document.dispatchEvent(event);
+        }
+    }
+
+    private updateUrl(): void {
+        const url = new URL(window.location.href);
+        Object.entries(this.currentFilters).forEach(([key, value]) => {
+            if (Array.isArray(value)) {
+                url.searchParams.set(key, value.join(','));
+            } else if (typeof value === 'object') {
+                Object.entries(value).forEach(([k, v]) => {
+                    if (v) url.searchParams.set(`${key}_${k}`, String(v));
+                });
+            } else {
+                url.searchParams.set(key, String(value));
+            }
+        });
+
+        window.history.pushState({}, '', url.toString());
+    }
+
+    private scrollToResults(): void {
+        if (this.config && this.config.targetBlockIds.length > 0) {
+            const firstTarget = document.querySelector(`[data-block-id="${this.config.targetBlockIds[0]}"]`);
+            if (firstTarget) {
+                // Use the shared scroll engine when available so the jump matches
+                // the page easing and clears the sticky header.
+                const scroll = window.jankxScroll;
+                if (scroll) {
+                    scroll.scrollTo(firstTarget as HTMLElement);
+                } else {
+                    firstTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+        }
+    }
+
+    private handleReset(): void {
+        if (!this.container) return;
+
+        this.container.querySelectorAll('input, select').forEach((element) => {
+            if (element instanceof HTMLInputElement) {
+                if (element.type === 'checkbox' || element.type === 'radio') {
+                    element.checked = false;
+                } else {
+                    element.value = '';
+                }
+            } else if (element instanceof HTMLSelectElement) {
+                element.selectedIndex = 0;
+            }
+        });
+
+        this.container.querySelectorAll('.filter-option').forEach((element) => {
+            element.classList.remove('active');
+        });
+
+        this.currentFilters = {};
+        this.handleFilterChange();
+    }
+
+    private showLoading(): void {
+        if (!this.config || !this.config.targetBlockIds) return;
+        
+        // Show loading spinner on target blocks (dynamic-data-layout blocks)
+        this.config.targetBlockIds.forEach((blockId: string) => {
+            let targetElement = document.querySelector(`[data-block-id="${blockId}"], [data-query-id="${blockId}"]`) as HTMLElement;
+            
+            if (!targetElement) {
+                // Try finding by class and queryId data attribute
+                const blocks = document.querySelectorAll('.wp-block-jankx-dynamic-data-layout');
+                blocks.forEach((block) => {
+                    const queryId = (block as HTMLElement).getAttribute('data-query-id');
+                    if (queryId === blockId) {
+                        targetElement = block as HTMLElement;
+                    }
+                });
+            }
+            
+            if (targetElement) {
+                // Create or get loading element
+                let loading = targetElement.querySelector('.dynamic-data-layout-loading');
+                
+                if (!loading) {
+                    // Create loading element if it doesn't exist
+                    loading = document.createElement('div');
+                    loading.className = 'dynamic-data-layout-loading';
+                    loading.innerHTML = '<div class="dynamic-data-layout-spinner"></div>';
+                    targetElement.appendChild(loading);
+                }
+                
+                loading.classList.add('active');
+            }
+        });
+    }
+
+    private hideLoading(): void {
+        if (!this.config || !this.config.targetBlockIds) return;
+        
+        // Hide loading spinner on target blocks
+        this.config.targetBlockIds.forEach((blockId: string) => {
+            let targetElement = document.querySelector(`[data-block-id="${blockId}"], [data-query-id="${blockId}"]`) as HTMLElement;
+            
+            if (!targetElement) {
+                // Try finding by class and queryId data attribute
+                const blocks = document.querySelectorAll('.wp-block-jankx-dynamic-data-layout');
+                blocks.forEach((block) => {
+                    const queryId = (block as HTMLElement).getAttribute('data-query-id');
+                    if (queryId === blockId) {
+                        targetElement = block as HTMLElement;
+                    }
+                });
+            }
+            
+            if (targetElement) {
+                const loading = targetElement.querySelector('.dynamic-data-layout-loading');
+                if (loading) {
+                    loading.classList.remove('active');
+                }
+            }
+        });
+    }
+
+    private debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
+        let timeout: NodeJS.Timeout;
+        return (...args: Parameters<T>) => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func(...args), wait);
+        };
+    }
+
+    /**
+     * Load filter values from URL query string on page load
+     * This ensures filters persist after page reload
+     */
+    private loadFiltersFromUrl(): void {
+        if (!this.container) return;
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const filters: Record<string, any> = {};
+
+        // Get all public taxonomies from config
+        const taxonomyFilters = this.config?.taxonomyFilters || [];
+        const taxonomySlugs = taxonomyFilters.map((f: any) => f.taxonomy).filter(Boolean);
+
+        // Load taxonomy filters
+        taxonomySlugs.forEach((taxonomy: string) => {
+            const value = urlParams.get(taxonomy);
+            if (value) {
+                const termIds = value.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+                if (termIds.length > 0) {
+                    filters[taxonomy] = termIds;
+                }
+            }
+        });
+
+        // Load keyword filter
+        const keyword = urlParams.get('keyword');
+        if (keyword) {
+            filters.keyword = keyword;
+        }
+
+        // Load selected post type
+        const urlPostType = urlParams.get('post_type');
+        if (urlPostType !== null) {
+            if (urlPostType !== '') {
+                filters.post_type = urlPostType;
+            } else {
+                filters.post_type = '';
+            }
+        }
+
+        // Load meta filters
+        urlParams.forEach((value, key) => {
+            if (key.startsWith('meta_')) {
+                filters[key] = value;
+            }
+        });
+
+        // Load price filters
+        const priceMin = urlParams.get('price_min');
+        const priceMax = urlParams.get('price_max');
+        if (priceMin || priceMax) {
+            filters.price = {};
+            if (priceMin) filters.price.min = priceMin;
+            if (priceMax) filters.price.max = priceMax;
+        }
+
+        // Load date filters
+        const dateStart = urlParams.get('date_start');
+        const dateEnd = urlParams.get('date_end');
+        if (dateStart || dateEnd) {
+            filters.date = {};
+            if (dateStart) filters.date.start = dateStart;
+            if (dateEnd) filters.date.end = dateEnd;
+        }
+
+        // Load author filter
+        const author = urlParams.get('author');
+        if (author) {
+            const authorIds = author.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+            if (authorIds.length > 0) {
+                filters.author = authorIds;
+            }
+        }
+
+        // Apply filters to UI
+        if (Object.keys(filters).length > 0) {
+            this.currentFilters = filters;
+            this.applyFiltersToUI(filters);
+        }
+    }
+
+    /**
+     * Apply filter values to UI elements
+     */
+    private applyFiltersToUI(filters: Record<string, any>): void {
+        if (!this.container) return;
+
+        // Apply taxonomy filters
+        Object.entries(filters).forEach(([key, value]) => {
+            if (Array.isArray(value)) {
+                // Taxonomy or author filters
+                const filterGroup = this.container!.querySelector(`[data-taxonomy="${key}"], [data-filter-type="author"]`);
+                if (filterGroup) {
+                    value.forEach((termId: number) => {
+                        const input = filterGroup.querySelector(`input[value="${termId}"]`) as HTMLInputElement;
+                        if (input) {
+                            input.checked = true;
+                        }
+                        // Also add active class for styling consistency
+                        const option = filterGroup.querySelector(`[data-value="${termId}"]`) as HTMLElement;
+                        if (option) {
+                            option.classList.add('active');
+                        }
+                    });
+                }
+            } else if (typeof value === 'object' && value !== null) {
+                // Price or date filters
+                if (key === 'price') {
+                    const priceGroup = this.container!.querySelector('.filter-price');
+                    if (priceGroup) {
+                        const minInput = priceGroup.querySelector('[name="price_min"]') as HTMLInputElement;
+                        const maxInput = priceGroup.querySelector('[name="price_max"]') as HTMLInputElement;
+                        if (minInput && value.min) minInput.value = value.min;
+                        if (maxInput && value.max) maxInput.value = value.max;
+                    }
+                } else if (key === 'date') {
+                    const dateGroup = this.container!.querySelector('.filter-date');
+                    if (dateGroup) {
+                        const startInput = dateGroup.querySelector('[name="date_start"]') as HTMLInputElement;
+                        const endInput = dateGroup.querySelector('[name="date_end"]') as HTMLInputElement;
+                        if (startInput && value.start) startInput.value = value.start;
+                        if (endInput && value.end) endInput.value = value.end;
+                    }
+                }
+            } else if (key === 'keyword') {
+                // Keyword filter
+                const keywordInput = this.container!.querySelector('.filter-keyword input.filter-input-keyword') as HTMLInputElement;
+                if (keywordInput) {
+                    keywordInput.value = value;
+                }
+            } else if (key === 'post_type') {
+                // Dedicated post types filter group (radios / buttons / tabs)
+                const postTypesGroup = this.container!.querySelector('.filter-post_types');
+                if (postTypesGroup) {
+                    postTypesGroup.querySelectorAll('input[type="radio"]').forEach((radio) => {
+                        if (radio instanceof HTMLInputElement) {
+                            radio.checked = (radio.value === value) || (value === '' && radio.value === '');
+                            radio.closest('.filter-option')?.classList.toggle('active', radio.checked);
+                        }
+                    });
+                    postTypesGroup.querySelectorAll('.filter-tab, .filter-option').forEach((option) => {
+                        if (option instanceof HTMLElement && !option.querySelector('input')) {
+                            option.classList.toggle('active', (option.getAttribute('data-value') || '') === value);
+                        }
+                    });
+                }
+
+                // Legacy: post type radios inside the keyword filter
+                const radios = this.container!.querySelectorAll('.filter-keyword .post-type-radios input[type="radio"]') as NodeListOf<HTMLInputElement>;
+                radios.forEach((radio) => {
+                    radio.checked = (radio.value === value) || (value === '' && radio.value === '');
+                    const option = radio.closest('.filter-option') as HTMLElement | null;
+                    if (option) {
+                        option.classList.toggle('active', radio.checked);
+                    }
+                });
+                this.syncDropdownLabels();
+            } else if (key.startsWith('meta_')) {
+                // Meta filter
+                const metaKey = key.replace('meta_', '');
+                const metaGroup = this.container!.querySelector(`[data-meta-key="${metaKey}"]`);
+                if (metaGroup) {
+                    const input = metaGroup.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
+                    if (input) {
+                        input.value = value;
+                    }
+                }
+            }
+        });
+    }
+}
+
+// Initialize on DOM ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAdvancedFilters);
+} else {
+    initAdvancedFilters();
+}
+
+function initAdvancedFilters(): void {
+    document.querySelectorAll('.wp-block-jankx-advanced-filters').forEach((container) => {
+        if (container instanceof HTMLElement) {
+            new AdvancedFilters(container);
+        }
+    });
+}
+
+// Export for potential external use
+if (typeof window !== 'undefined') {
+    (window as any).AdvancedFilters = AdvancedFilters;
+}

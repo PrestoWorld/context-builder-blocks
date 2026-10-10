@@ -1,0 +1,136 @@
+// Styling for the social sharing anchor.
+//
+// The link is rendered as an <a> (not a <button>) so it no longer inherits UA
+// button chrome. Per-network visual styles now come from the parent block's
+// WordPress style variations; the `.style-*` rules below are kept for
+// backward compatibility with content saved before that change.
+@use "../social-sharing/styles/filled";
+@use "../social-sharing/styles/icon-only";
+@use "../social-sharing/styles/none";
+@use "../social-sharing/styles/outlined";
+@use "../social-sharing/styles/rounded";
+@use "../social-sharing/styles/square";
+
+.wp-block-jankx-social-sharing-icon {
+    display: inline-block;
+
+    .sharing-icon-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        margin: 0;
+        border: none;
+        background: var(--wp--preset--color--primary, #f0f0f0);
+        color: var(--wp--preset--color--base, #fff);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 0.9rem;
+        line-height: 1.4;
+        text-decoration: none;
+        font-family: inherit;
+        border-radius: 4px;
+
+        &:hover {
+            background: var(--wp--preset--color--secondary, #e0e0e0);
+            transform: translateY(-2px);
+        }
+
+        &:focus {
+            outline: 2px solid #0073aa;
+            outline-offset: 2px;
+        }
+
+        .sharing-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2em;
+
+            // Fallback icon when no inner blocks
+            &.sharing-icon-with-fallback:empty::before {
+                content: attr(data-fallback-icon);
+            }
+
+            // Style for inner blocks (icon-picker, svg-icon, image)
+            .sharing-icon-inner {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                height: 100%;
+
+                img {
+                    max-width: 100%;
+                    max-height: 100%;
+                    object-fit: contain;
+                }
+
+                svg {
+                    width: 1em;
+                    height: 1em;
+                }
+            }
+        }
+
+        .sharing-label {
+            white-space: nowrap;
+        }
+
+        // Sizes
+        &.size-small {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+
+            .sharing-icon {
+                font-size: 1em;
+            }
+        }
+
+        &.size-large {
+            padding: 0.75rem 1.5rem;
+            font-size: 1.1rem;
+
+            .sharing-icon {
+                font-size: 1.4em;
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Legacy `style-*` classes.
+        //
+        // Blocks saved before style variations keep these classes on the
+        // anchor itself. They must stay in sync with the shared partials so
+        // old content keeps rendering exactly as before.
+        // ---------------------------------------------------------------------
+        &.style-none {
+            @include none.social-sharing-style-none;
+        }
+
+        &.style-outlined {
+            @include outlined.social-sharing-style-outlined;
+        }
+
+        &.style-filled {
+            @include filled.social-sharing-style-filled;
+        }
+
+        &.style-rounded {
+            @include rounded.social-sharing-style-rounded;
+        }
+
+        &.style-square {
+            @include square.social-sharing-style-square;
+        }
+    }
+}
+
+// Editor specific styles
+.editor-styles-wrapper {
+    .wp-block-jankx-social-sharing-icon {
+        .sharing-icon-button {
+            pointer-events: none;
+        }
+    }
+}

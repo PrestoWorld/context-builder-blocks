@@ -1,0 +1,102 @@
+{
+    "$schema": "https://schemas.wp.org/trunk/block.json",
+    "apiVersion": 3,
+    "name": "jankx/wrapper",
+    "version": "1.0.0",
+    "title": "Wrapper",
+    "category": "design",
+    "description": "A layout wrapper block with advanced responsive controls, colors, typography, and border settings.",
+    "providesContext": {
+        "jankx/wrapperId": "anchor"
+    },
+    "attributes": {
+        "paddingUltrawide": { "type": "number" },
+        "paddingDesktop": { "type": "number" },
+        "paddingTablet": { "type": "number" },
+        "paddingMobile": { "type": "number" },
+        "marginUltrawide": { "type": "number" },
+        "marginDesktop": { "type": "number" },
+        "marginTablet": { "type": "number" },
+        "marginMobile": { "type": "number" },
+        "hideOnUltrawide": { "type": "boolean", "default": false },
+        "hideOnDesktop": { "type": "boolean", "default": false },
+        "hideOnTablet": { "type": "boolean", "default": false },
+        "hideOnMobile": { "type": "boolean", "default": false },
+        "tagName": { "type": "string", "default": "div" },
+        "maxWidth": { "type": "string" },
+        "renderMode": { "type": "string", "default": "dynamic" }
+    },
+    "supports": {
+        "anchor": true,
+        "align": [ "wide", "full" ],
+        "ariaLabel": true,
+        "html": false,
+        "background": {
+            "backgroundImage": true,
+            "backgroundSize": true,
+            "gradient": true,
+            "__experimentalDefaultControls": {
+                "backgroundImage": true,
+                "gradient": true
+            }
+        },
+        "color": {
+            "gradients": true,
+            "heading": true,
+            "button": true,
+            "link": true,
+            "__experimentalDefaultControls": {
+                "background": true,
+                "text": true
+            }
+        },
+        "shadow": true,
+        "spacing": {
+            "margin": [ "top", "bottom" ],
+            "padding": true,
+            "blockGap": true,
+            "__experimentalDefaultControls": {
+                "padding": true,
+                "blockGap": true
+            }
+        },
+        "dimensions": {
+            "minHeight": true,
+            "minWidth": true
+        },
+        "__experimentalBorder": {
+            "color": true,
+            "radius": true,
+            "style": true,
+            "width": true,
+            "__experimentalDefaultControls": {
+                "color": true,
+                "radius": true,
+                "style": true,
+                "width": true
+            }
+        },
+        "position": {
+            "sticky": true
+        },
+        "typography": {
+            "fontSize": true,
+            "lineHeight": true,
+            "__experimentalFontFamily": true,
+            "__experimentalFontWeight": true,
+            "__experimentalFontStyle": true,
+            "__experimentalTextTransform": true,
+            "__experimentalTextDecoration": true,
+            "__experimentalLetterSpacing": true,
+            "__experimentalDefaultControls": {
+                "fontSize": true
+            }
+        },
+        "layout": {
+            "allowSizingOnChildren": true
+        }
+    },
+    "editorScript": "file:../../dist/blocks/wrapper/index.js",
+    "style": "file:../../dist/blocks/wrapper/style.css",
+    "editorStyle": "file:../../dist/blocks/wrapper/style.css"
+}

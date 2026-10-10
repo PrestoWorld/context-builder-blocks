@@ -1,0 +1,663 @@
+@use "sass:color";
+
+// Global layout classes - apply to wrapper for consistent editor/frontend styling
+.wp-block-jankx-advanced-filters {
+    // Ensure padding is inside border (not outside)
+    // WordPress applies padding via inline styles on the wrapper
+    // We need to move padding from wrapper to inner container
+    box-sizing: border-box;
+    
+    // Store padding values in CSS custom properties before removing from wrapper
+    // This allows us to read padding from inline styles and apply to container
+    --wrapper-padding-top: var(--wp--style--padding--top, 0);
+    --wrapper-padding-right: var(--wp--style--padding--right, 0);
+    --wrapper-padding-bottom: var(--wp--style--padding--bottom, 0);
+    --wrapper-padding-left: var(--wp--style--padding--left, 0);
+    
+    // Remove padding from wrapper (will be moved to inner container)
+    // WordPress adds padding via inline styles, so we need to override it
+    padding: 0;
+    
+    // Move padding to inner container so it's inside the border
+    .advanced-filters-container {
+        box-sizing: border-box;
+        // Apply padding from CSS custom properties
+        // This ensures padding is inside the border
+        padding-top: var(--wrapper-padding-top);
+        padding-right: var(--wrapper-padding-right);
+        padding-bottom: var(--wrapper-padding-bottom);
+        padding-left: var(--wrapper-padding-left);
+    }
+    
+    // Also apply padding to reset button if it exists
+    .filter-reset-button {
+        margin-left: var(--wrapper-padding-left, 0);
+        margin-right: var(--wrapper-padding-right, 0);
+        margin-bottom: var(--wrapper-padding-bottom, 0);
+    }
+    
+    &.layout-horizontal {
+        .advanced-filters-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: flex-start;
+        }
+
+        // Ensure checkbox display styles align horizontally
+        .filter-options.display-checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 1rem;
+            padding-left: 0;
+            list-style: none;
+
+            .filter-option-wrapper {
+                list-style: none;
+                display: block;
+            }
+
+            .filter-option {
+                padding: 0.25rem 0.5rem;
+            }
+        }
+    }
+
+    &.layout-vertical {
+        .advanced-filters-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+    }
+
+    &.layout-accordion {
+        .advanced-filters-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            
+            .filter-group {
+                border-bottom: 1px solid var(--wp--preset--color--neutral, #ddd);
+                padding-bottom: 1rem;
+                margin-bottom: 1rem;
+
+                &:last-child {
+                    border-bottom: none;
+                    margin-bottom: 0;
+                }
+            }
+        }
+    }
+
+    // Collapsible filter groups - consistent styling
+    .filter-collapsible {
+        .filter-group-header {
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 0;
+
+            .filter-group-label {
+                margin: 0;
+            }
+
+            .filter-group-toggle {
+                background: none;
+                border: none;
+                font-size: 1.2rem;
+                cursor: pointer;
+                padding: 0;
+                color: var(--wp--preset--color--contrast, #000);
+
+                &:hover {
+                    color: var(--wp--preset--color--primary, #503AA8);
+                }
+            }
+        }
+
+        .filter-group-content {
+            padding-top: 1rem;
+            display: none;
+
+            &[style*="display: block"],
+            &.expanded {
+                display: block;
+            }
+        }
+
+        &.filter-expanded {
+            .filter-group-content {
+                display: block;
+            }
+        }
+    }
+}
+
+.filter-group {
+    flex: 0 0 auto;
+
+    .filter-group-label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+        font-size: 0.9rem;
+        color: var(--wp--preset--color--contrast, #000);
+    }
+
+    .filter-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+
+        &.display-buttons {
+            .filter-option {
+                padding: 0.5rem 1rem;
+                border: 2px solid var(--wp--preset--color--neutral, #ddd);
+                background: var(--wp--preset--color--base, #fff);
+                border-radius: 6px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                font-size: 0.9rem;
+                text-decoration: none;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+
+                &:hover {
+                    border-color: var(--wp--preset--color--primary, #503AA8);
+                    color: var(--wp--preset--color--primary, #503AA8);
+                }
+
+                &.active {
+                    background: var(--wp--preset--color--primary, #503AA8);
+                    border-color: var(--wp--preset--color--primary, #503AA8);
+                    color: var(--wp--preset--color--base, #fff);
+                }
+            }
+        }
+
+        &.display-tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid var(--wp--preset--color--neutral, #ddd);
+            flex-wrap: wrap;
+
+            .filter-tab {
+                padding: 0.6rem 1.2rem;
+                cursor: pointer;
+                border-bottom: 2px solid transparent;
+                margin-bottom: -2px;
+                transition: all 0.2s ease;
+                font-size: 0.9rem;
+                text-decoration: none;
+                color: var(--wp--preset--color--foreground, #333);
+                white-space: nowrap;
+
+                &:hover {
+                    color: var(--wp--preset--color--primary, #503AA8);
+                    background: var(--wp--preset--color--base, rgba(80, 58, 168, 0.05));
+                }
+
+                &.active {
+                    border-bottom-color: var(--wp--preset--color--primary, #503AA8);
+                    color: var(--wp--preset--color--primary, #503AA8);
+                    font-weight: 600;
+                }
+            }
+        }
+
+        &.display-checkboxes {
+            // Default flex layout for div-based lists
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+
+            // List types (ul, ol)
+            &.filter-list-ul,
+            &.filter-list-ol {
+                list-style: none;
+                padding-left: 1.5em;
+                margin: 0;
+                display: block;
+                flex-direction: column;
+            }
+
+            &.filter-list-ul {
+                list-style: disc;
+                padding-left: 1.5em;
+            }
+
+            &.filter-list-ol {
+                list-style: decimal;
+                padding-left: 1.5em;
+                
+                // Use CSS counter for hierarchical numbering
+                counter-reset: filter-term-counter;
+                
+                > .filter-option-wrapper {
+                    counter-increment: filter-term-counter;
+                    
+                    &::before {
+                        content: counter(filter-term-counter) '. ';
+                        display: inline-block;
+                        min-width: 1.5em;
+                        margin-right: 0.25em;
+                    }
+                }
+                
+                // Nested lists - reset counter for each nested level
+                .filter-terms-nested {
+                    counter-reset: filter-term-counter;
+                    
+                    > .filter-option-wrapper {
+                        counter-increment: filter-term-counter;
+                        
+                        &::before {
+                            content: counter(filter-term-counter) '. ';
+                        }
+                    }
+                }
+            }
+
+            &.filter-list-none {
+                display: block;
+                list-style: none;
+                padding-left: 0;
+            }
+
+            .filter-option-wrapper {
+                display: list-item;
+                list-style: inherit;
+            }
+
+            .filter-option {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0.5rem;
+                cursor: pointer;
+
+                input[type="checkbox"],
+                input[type="radio"] {
+                    margin: 0;
+                }
+
+                label {
+                    cursor: pointer;
+                    margin: 0;
+                }
+            }
+        }
+
+        &.display-dropdown,
+        &.display-select {
+            .filter-select {
+                padding: 0.5rem 1rem;
+                border: 2px solid var(--wp--preset--color--neutral, #ddd);
+                border-radius: 6px;
+                font-size: 0.9rem;
+                background: var(--wp--preset--color--base, #fff);
+                min-width: 200px;
+            }
+        }
+    }
+
+    // Smooth animated dropdown display style (display style "dropdown")
+    .filter-dropdown {
+        position: relative;
+        display: inline-block;
+        min-width: 200px;
+
+        &.is-open {
+            z-index: 30;
+        }
+
+        .filter-dropdown__toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            width: 100%;
+            padding: 0.5rem 1rem;
+            border: 2px solid var(--wp--preset--color--neutral, #ddd);
+            border-radius: 6px;
+            background: var(--wp--preset--color--base, #fff);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease;
+
+            &:hover {
+                border-color: var(--wp--preset--color--primary, #503AA8);
+            }
+
+            &:focus-visible {
+                outline: 2px solid var(--wp--preset--color--primary, #503AA8);
+                outline-offset: 2px;
+            }
+
+            .filter-dropdown__value {
+                flex: 1;
+                text-align: left;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .filter-dropdown__chevron {
+                flex-shrink: 0;
+                transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+        }
+
+        &.is-open {
+            .filter-dropdown__toggle {
+                border-color: var(--wp--preset--color--primary, #503AA8);
+            }
+
+            .filter-dropdown__chevron {
+                transform: rotate(180deg);
+            }
+        }
+
+        .filter-dropdown__panel {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            right: 0;
+            max-height: 0;
+            opacity: 0;
+            transform: translateY(-6px);
+            overflow: hidden;
+            pointer-events: none;
+            background: var(--wp--preset--color--base, #fff);
+            border: 2px solid var(--wp--preset--color--neutral, #ddd);
+            border-radius: 6px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            z-index: 40;
+            transition:
+                max-height 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.2s ease,
+                transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        &.is-open .filter-dropdown__panel {
+            max-height: 320px;
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+        .filter-dropdown__scroll {
+            max-height: 280px;
+            overflow-y: auto;
+            padding: 0.35rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        // Options inside the panel stack vertically regardless of the outer
+        // filter-options flex-wrap layout
+        .filter-dropdown__panel .filter-options {
+            display: flex;
+            flex-direction: column;
+            flex-wrap: nowrap;
+            gap: 2px;
+
+            .filter-option {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0.5rem 0.75rem;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 0.9rem;
+                white-space: nowrap;
+                transition: background 0.15s ease, color 0.15s ease;
+
+                input {
+                    margin: 0;
+                    flex-shrink: 0;
+                }
+
+                &:hover {
+                    background: rgba(80, 58, 168, 0.08);
+                }
+
+                &.active {
+                    color: var(--wp--preset--color--primary, #503AA8);
+                    font-weight: 500;
+                }
+            }
+        }
+    }
+
+    .filter-input {
+        padding: 0.5rem 1rem;
+        border: 2px solid var(--wp--preset--color--neutral, #ddd);
+        border-radius: 6px;
+        font-size: 0.9rem;
+        min-width: 200px;
+
+        &:focus {
+            outline: none;
+            border-color: var(--wp--preset--color--primary, #503AA8);
+        }
+    }
+
+    // Range inputs - consistent styling for price, meta, date ranges
+    .filter-range {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+
+        .filter-range-input {
+            flex: 1;
+            padding: 0.5rem 1rem;
+            border: 2px solid var(--wp--preset--color--neutral, #ddd);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            min-width: 0;
+
+            &:focus {
+                outline: none;
+                border-color: var(--wp--preset--color--primary, #503AA8);
+            }
+        }
+
+        .filter-range-separator {
+            color: var(--wp--preset--color--contrast, #000);
+            font-weight: 500;
+        }
+    }
+
+    // Price range specific
+    .filter-price-range {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+
+        .filter-range {
+            margin-bottom: 0.5rem;
+        }
+
+        .filter-currency {
+            font-size: 0.85rem;
+            color: var(--wp--preset--color--contrast, #666);
+        }
+    }
+
+    // Keyword wrapper
+    .filter-keyword-wrapper {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+
+        .filter-input-keyword {
+            flex: 1;
+        }
+
+        .filter-search-button {
+            padding: 0.5rem 1.5rem;
+            background: var(--wp--preset--color--primary, #503AA8);
+            color: var(--wp--preset--color--base, #fff);
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+
+            &:hover {
+                background: var(--wp--preset--color--contrast, #000);
+            }
+        }
+    }
+}
+
+.filter-reset-button {
+    margin-top: 1rem;
+    padding: 0.75rem 1.5rem;
+    background: var(--wp--preset--color--contrast, #000);
+    color: var(--wp--preset--color--base, #fff);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+
+    &:hover {
+        background: var(--wp--preset--color--primary, #503AA8);
+    }
+}
+
+// Loading spinner for dynamic-data-layout blocks (target blocks)
+.dynamic-data-layout-loading {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.9);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    text-align: center;
+
+    &.active {
+        display: flex;
+    }
+
+    .dynamic-data-layout-spinner {
+        display: inline-block;
+        width: 40px;
+        height: 40px;
+        border: 4px solid var(--wp--preset--color--neutral, #ddd);
+        border-top-color: var(--wp--preset--color--primary, #503AA8);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+}
+
+// Ensure dynamic-data-layout block has relative positioning for absolute loading overlay
+.wp-block-jankx-dynamic-data-layout {
+    position: relative;
+    min-height: 100px; // Ensure there's space for loading overlay
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+// Hierarchy styles
+.filter-term-child {
+    font-size: 0.95em;
+    opacity: 0.95;
+}
+
+// Responsive
+@media (max-width: 768px) {
+    .layout-horizontal .advanced-filters-container {
+        flex-direction: column;
+    }
+
+    .filter-group {
+        width: 100%;
+
+        .filter-options.display-buttons {
+            flex-direction: column;
+
+            .filter-option {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Checkbox / radio box styling driven by the jankx/filter-checkbox and
+// jankx/filter-radio style blocks.
+//
+// AdvancedFilterBlock mirrors their attributes as CSS custom properties on the
+// filter wrapper and only adds `.jankx-filter-box-styled` when such a block is
+// present, so filters without one keep the browser's native control.
+// ---------------------------------------------------------------------------
+.jankx-filter-box-styled .filter-option input[type='checkbox'],
+.jankx-filter-box-styled .filter-option input[type='radio'],
+.jankx-filter-style-preview input {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: var(--jankx-filter-box-size, 18px);
+    height: var(--jankx-filter-box-size, 18px);
+    margin: 0;
+    padding: 0;
+    border: var(--jankx-filter-box-border-width, 1.5px) solid var(--jankx-filter-box-border-color, #8c8f94);
+    background-color: #fff;
+    cursor: pointer;
+    transition: border-color 0.15s ease-in-out, background-color 0.15s ease-in-out;
+}
+
+.jankx-filter-box-styled .filter-option input[type='checkbox'],
+.jankx-filter-style-preview input[type='checkbox'] {
+    border-radius: var(--jankx-filter-box-radius, 4px);
+}
+
+.jankx-filter-box-styled .filter-option input[type='radio'],
+.jankx-filter-style-preview input[type='radio'] {
+    border-radius: 50%;
+}
+
+.jankx-filter-box-styled .filter-option input[type='checkbox']:checked,
+.jankx-filter-style-preview input[type='checkbox']:checked {
+    border-color: var(--jankx-filter-box-checked-color, #503aa8);
+    background-color: var(--jankx-filter-box-checked-color, #503aa8);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 65% 65%;
+}
+
+.jankx-filter-box-styled .filter-option input[type='radio']:checked,
+.jankx-filter-style-preview input[type='radio']:checked {
+    border-color: var(--jankx-filter-box-checked-color, #503aa8);
+    background-color: #fff;
+    background-image: radial-gradient(
+        circle,
+        var(--jankx-filter-box-checked-color, #503aa8) 0 38%,
+        transparent 40%
+    );
+}
+
+// The option label already declares its own gap with a deeper selector, so
+// this one has to win explicitly.
+.jankx-filter-box-styled .filter-option {
+    gap: var(--jankx-filter-box-gap, 0.5rem) !important;
+}
